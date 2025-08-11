@@ -16,6 +16,8 @@ const kafkaConfig = {
 		: undefined,
 };
 
+console.log(kafkaConfig);
+
 const consumerConfig = {
 	groupId: process.env.KAFKA_GROUP_ID || "test-consumer-group",
 	sessionTimeout: 30000,
