@@ -9,7 +9,7 @@ const kafkaConfig = {
 	// Username/Password authentication için
 	sasl: process.env.KAFKA_USERNAME
 		? {
-				mechanism: "plain",
+				mechanism: "scram-sha-512", // AWS MSK genelde SCRAM kullanır
 				username: process.env.KAFKA_USERNAME,
 				password: process.env.KAFKA_PASSWORD,
 		  }

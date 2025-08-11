@@ -201,16 +201,19 @@ class KafkaTestSuite {
 
 	// Mesajları gönder
 	async sendMessages() {
-		console.log("📤 Mesajlar gönderiliyor...\n");
+		console.log("📤 MESAJLAR GÖNDERİLİYOR...");
+		console.log("═".repeat(40));
 
 		const producer = await this.getProducer();
 
 		for (const topic of testConfig.topics) {
-			console.log(`📋 ${topic} topic'ine mesajlar gönderiliyor...`);
+			console.log(
+				`\n📋 ${topic.toUpperCase()} topic'ine mesajlar gönderiliyor...`
+			);
 
 			const messages = [];
 			for (let i = 1; i <= testConfig.messageCount; i++) {
-				messages.push({
+				const messageData = {
 					key: `${topic}-key-${i}`,
 					value: JSON.stringify({
 						id: uuidv4(),
@@ -225,101 +228,251 @@ class KafkaTestSuite {
 						topic: topic,
 						sequence: i.toString(),
 					},
-				});
+				};
+				messages.push(messageData);
+				console.log(
+					`  📝 Hazırlanan mesaj #${i}: "${topic} mesajı #${i}"`
+				);
 			}
 
 			const startTime = Date.now();
-			await producer.send({
+			const result = await producer.send({
 				topic: topic,
 				messages: messages,
 			});
 			const endTime = Date.now();
 
 			console.log(
-				`✅ ${topic}: ${testConfig.messageCount} mesaj gönderildi (${
-					endTime - startTime
-				}ms)`
+				`\n  ✅ ${topic}: ${testConfig.messageCount} mesaj başarıyla gönderildi!`
 			);
+			console.log(`  ⏱️  Gönderim süresi: ${endTime - startTime}ms`);
+			console.log(
+				`  📊 Ortalama: ${(
+					(endTime - startTime) /
+					testConfig.messageCount
+				).toFixed(2)}ms/mesaj`
+			);
+
+			// Partition dağılımını göster
+			const partitionCounts = {};
+			result.forEach((r) => {
+				if (!partitionCounts[r.partition]) {
+					partitionCounts[r.partition] = 0;
+				}
+				partitionCounts[r.partition]++;
+			});
+
+			console.log(`  📈 Partition dağılımı:`);
+			Object.keys(partitionCounts).forEach((partition) => {
+				console.log(
+					`     - Partition ${partition}: ${partitionCounts[partition]} mesaj`
+				);
+			});
 		}
 
-		console.log("\n📫 Tüm mesajlar gönderildi!\n");
+		console.log("\n🎯 TÜM MESAJLAR BAŞARIYLA GÖNDERİLDİ!");
+		console.log("═".repeat(40));
 	}
 
-	// Sonuçları analiz et
+	// Test sonuçlarını analiz et ve detaylı raporla
 	async analyzeResults() {
-		console.log("📊 Sonuçlar analiz ediliyor...\n");
+		console.log("🧪 TEST SONUÇLARI ANALİZ EDİLİYOR...");
+		console.log("═".repeat(60));
 
+		let allTestsPassed = true;
+		const testResults = {
+			topics: {},
+			summary: {
+				totalSent: testConfig.topics.length * testConfig.messageCount,
+				totalReceived: 0,
+				passedTests: 0,
+				failedTests: 0,
+			},
+		};
+
+		// Her topic için detaylı analiz
 		for (const topic of testConfig.topics) {
-			console.log(`📋 ${topic.toUpperCase()} TOPIC ANALİZİ:`);
-			console.log("═".repeat(50));
+			console.log(`\n📋 ${topic.toUpperCase()} TOPIC TEST SONUÇLARI:`);
+			console.log("─".repeat(50));
 
 			const topicMessages = this.receivedMessages[topic];
+			const topicResult = {
+				sent: testConfig.messageCount,
+				pubsub: { consumer1: 0, consumer2: 0, passed: false },
+				queue: { consumer1: 0, consumer2: 0, total: 0, passed: false },
+				partitions: {},
+				messages: [],
+			};
 
-			// Pub-Sub modeli analizi
-			console.log("🔄 Pub-Sub Modeli (Farklı Gruplar):");
+			// Mesaj sayılarını topla
 			const pubsub1 = topicMessages[`PubSub-1-${topic}`] || [];
 			const pubsub2 = topicMessages[`PubSub-2-${topic}`] || [];
-
-			console.log(`  📨 PubSub-1: ${pubsub1.length} mesaj aldı`);
-			console.log(`  📨 PubSub-2: ${pubsub2.length} mesaj aldı`);
-			console.log(
-				`  🎯 Beklenen: Her consumer ${testConfig.messageCount} mesaj almalı`
-			);
-
-			// Queue modeli analizi
-			console.log("\n📦 Queue Modeli (Aynı Grup):");
 			const queue1 = topicMessages[`Queue-1-${topic}`] || [];
 			const queue2 = topicMessages[`Queue-2-${topic}`] || [];
 
-			console.log(`  📨 Queue-1: ${queue1.length} mesaj aldı`);
-			console.log(`  📨 Queue-2: ${queue2.length} mesaj aldı`);
+			topicResult.pubsub.consumer1 = pubsub1.length;
+			topicResult.pubsub.consumer2 = pubsub2.length;
+			topicResult.queue.consumer1 = queue1.length;
+			topicResult.queue.consumer2 = queue2.length;
+			topicResult.queue.total = queue1.length + queue2.length;
+
+			// Tüm mesajları birleştir ve analiz et
+			const allMessages = [...pubsub1, ...pubsub2, ...queue1, ...queue2];
+			testResults.summary.totalReceived += allMessages.length;
+
+			// Her gönderilen mesajın alınıp alınmadığını kontrol et
+			console.log("\n🔍 MESAJ BAZLI TEST SONUÇLARI:");
+			for (let i = 1; i <= testConfig.messageCount; i++) {
+				const messageText = `${topic} mesajı #${i}`;
+
+				// Bu mesajı alan consumer'ları bul
+				const pubsub1Received = pubsub1.find(
+					(msg) => msg.value.sequence === i
+				);
+				const pubsub2Received = pubsub2.find(
+					(msg) => msg.value.sequence === i
+				);
+				const queue1Received = queue1.find(
+					(msg) => msg.value.sequence === i
+				);
+				const queue2Received = queue2.find(
+					(msg) => msg.value.sequence === i
+				);
+
+				const queueReceived = queue1Received || queue2Received;
+
+				// Pub-Sub testi (her consumer almalı)
+				const pubsubPassed = pubsub1Received && pubsub2Received;
+				// Queue testi (en az bir consumer almalı)
+				const queuePassed = queueReceived;
+
+				const overallPassed = pubsubPassed && queuePassed;
+
+				if (overallPassed) {
+					console.log(`  ✅ Mesaj #${i}: PASSED`);
+					console.log(
+						`     🔄 PubSub: Consumer1(P:${pubsub1Received.partition}) + Consumer2(P:${pubsub2Received.partition})`
+					);
+					console.log(
+						`     📦 Queue: ${queueReceived.consumerId}(P:${queueReceived.partition})`
+					);
+					testResults.summary.passedTests++;
+				} else {
+					console.log(`  ❌ Mesaj #${i}: FAILED`);
+					console.log(
+						`     🔄 PubSub: ${
+							pubsub1Received ? "✅" : "❌"
+						} Consumer1, ${pubsub2Received ? "✅" : "❌"} Consumer2`
+					);
+					console.log(
+						`     📦 Queue: ${queueReceived ? "✅" : "❌"} ${
+							queueReceived
+								? queueReceived.consumerId
+								: "Hiç alınmadı"
+						}`
+					);
+					testResults.summary.failedTests++;
+					allTestsPassed = false;
+				}
+
+				// Partition istatistikleri
+				allMessages.forEach((msg) => {
+					if (msg.value.sequence === i) {
+						if (!topicResult.partitions[msg.partition]) {
+							topicResult.partitions[msg.partition] = 0;
+						}
+						topicResult.partitions[msg.partition]++;
+					}
+				});
+			}
+
+			// Topic bazlı genel değerlendirme
+			topicResult.pubsub.passed =
+				pubsub1.length === testConfig.messageCount &&
+				pubsub2.length === testConfig.messageCount;
+			topicResult.queue.passed =
+				topicResult.queue.total === testConfig.messageCount;
+
+			console.log("\n📊 TOPIC ÖZET:");
 			console.log(
-				`  🎯 Toplam: ${queue1.length + queue2.length} (Beklenen: ${
-					testConfig.messageCount
-				})`
+				`  🔄 PubSub Modeli: ${
+					topicResult.pubsub.passed ? "✅ PASSED" : "❌ FAILED"
+				}`
+			);
+			console.log(
+				`     - Consumer1: ${topicResult.pubsub.consumer1}/${testConfig.messageCount}`
+			);
+			console.log(
+				`     - Consumer2: ${topicResult.pubsub.consumer2}/${testConfig.messageCount}`
 			);
 
-			// Partition dağılımı
-			const allMessages = [...pubsub1, ...pubsub2, ...queue1, ...queue2];
-			const partitionStats = {};
+			console.log(
+				`  📦 Queue Modeli: ${
+					topicResult.queue.passed ? "✅ PASSED" : "❌ FAILED"
+				}`
+			);
+			console.log(`     - Consumer1: ${topicResult.queue.consumer1}`);
+			console.log(`     - Consumer2: ${topicResult.queue.consumer2}`);
+			console.log(
+				`     - Toplam: ${topicResult.queue.total}/${testConfig.messageCount}`
+			);
 
-			allMessages.forEach((msg) => {
-				if (!partitionStats[msg.partition]) {
-					partitionStats[msg.partition] = 0;
-				}
-				partitionStats[msg.partition]++;
-			});
-
-			console.log("\n📈 Partition Dağılımı:");
-			Object.keys(partitionStats).forEach((partition) => {
+			console.log(`  📈 Partition Dağılımı:`);
+			Object.keys(topicResult.partitions).forEach((partition) => {
 				console.log(
-					`  Partition ${partition}: ${partitionStats[partition]} mesaj`
+					`     - Partition ${partition}: ${topicResult.partitions[partition]} mesaj`
 				);
 			});
 
-			console.log("\n");
+			testResults.topics[topic] = topicResult;
 		}
 
-		// Genel özet
-		let totalSent = testConfig.topics.length * testConfig.messageCount;
-		let totalReceived = 0;
+		// GENEL TEST SONUCU
+		console.log("\n" + "🎯".repeat(20));
+		console.log("🎯 GENEL TEST SONUCU");
+		console.log("🎯".repeat(20));
 
-		Object.values(this.receivedMessages).forEach((topicMessages) => {
-			Object.values(topicMessages).forEach((messages) => {
-				totalReceived += messages.length;
-			});
+		console.log(
+			`📤 Toplam gönderilen mesaj: ${testResults.summary.totalSent}`
+		);
+		console.log(
+			`📥 Toplam alınan mesaj: ${testResults.summary.totalReceived}`
+		);
+		console.log(`✅ Başarılı testler: ${testResults.summary.passedTests}`);
+		console.log(`❌ Başarısız testler: ${testResults.summary.failedTests}`);
+
+		const successRate = (
+			(testResults.summary.passedTests /
+				(testResults.summary.passedTests +
+					testResults.summary.failedTests)) *
+			100
+		).toFixed(1);
+		console.log(`📊 Başarı oranı: ${successRate}%`);
+
+		// Model bazlı özet
+		let pubsubSuccess = 0,
+			queueSuccess = 0;
+		Object.values(testResults.topics).forEach((topic) => {
+			if (topic.pubsub.passed) pubsubSuccess++;
+			if (topic.queue.passed) queueSuccess++;
 		});
 
-		console.log("📊 GENEL ÖZET:");
-		console.log("═".repeat(30));
-		console.log(`📤 Gönderilen toplam mesaj: ${totalSent}`);
-		console.log(`📥 Alınan toplam mesaj: ${totalReceived}`);
+		console.log("\n📋 MODEL BAZLI BAŞARI ORANLARI:");
 		console.log(
-			`🎯 Başarı oranı: ${(
-				(totalReceived / (totalSent * 4)) *
-				100
-			).toFixed(1)}%`
-		); // 4 consumer per topic
+			`🔄 Pub-Sub Modeli: ${pubsubSuccess}/${testConfig.topics.length} topic başarılı`
+		);
+		console.log(
+			`📦 Queue Modeli: ${queueSuccess}/${testConfig.topics.length} topic başarılı`
+		);
+
+		// Final durumu
+		if (allTestsPassed) {
+			console.log("\n🎉🎉🎉 TÜM TESTLER BAŞARIYLA GEÇİLDİ! 🎉🎉🎉");
+		} else {
+			console.log("\n⚠️⚠️⚠️ BAZI TESTLER BAŞARISIZ! ⚠️⚠️⚠️");
+		}
+
+		return testResults;
 	}
 
 	// Temizlik
