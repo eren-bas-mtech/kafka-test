@@ -1,0 +1,25 @@
+{
+  "name": "aws-kafka-test",
+  "version": "1.0.0",
+  "description": "AWS Kafka bağlantı, topic ve mesaj testleri için Node.js projesi",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test:connection": "node tests/connection-test.js",
+    "test:producer": "node tests/producer-test.js",
+    "test:consumer": "node tests/consumer-test.js",
+    "test:topics": "node tests/topic-test.js",
+    "test:all": "npm run test:connection && npm run test:topics && npm run test:producer && npm run test:consumer"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["kafka", "aws", "msk", "test", "nodejs"],
+  "author": "",
+  "license": "MIT"
+} 
